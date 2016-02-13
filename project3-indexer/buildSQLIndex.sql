@@ -1,0 +1,2 @@
+USE CS144;
+CREATE TABLE SpatialItems(ItemID varchar(80), LatLong POINT NOT NULL, SPATIAL INDEX (LatLong)) ENGINE=MyISAM;
