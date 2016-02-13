@@ -4,9 +4,11 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.File;
 import java.util.Date;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.text.SimpleDateFormat;
 
 import java.sql.Connection;
@@ -98,12 +100,46 @@ public class AuctionSearch implements IAuctionSearch {
 	public SearchResult[] spatialSearch(String query, SearchRegion region,
 			int numResultsToSkip, int numResultsToReturn) {
 		//first create connection to SQL
+		SearchResult[] finalresults = new SearchResult[numResultsToReturn];
 		try {
 			Connection my_db_conn = DbManager.getConnection(true);
 			
 			//build the spatial index
 			buildSpatialIndex(my_db_conn);
 			
+			//get the regional items
+			ResultSet results = getRegionalItems(my_db_conn, region);
+			//to enable faster searching, put it into a hashset
+			Set<String> results_set = new HashSet<String>();
+			while(results.next()){
+				if(!results_set.contains(results.getString("ItemID"))){
+					results_set.add(results.getString("ItemID"));
+				}
+			}
+			
+			//run a basic search
+			SearchResult[] basicresults = basicSearch(query, numResultsToSkip, numResultsToReturn);
+			
+			//if the user wants to skip a lot of results, we just return our length 0 array
+			if(basicresults.length <= numResultsToSkip){
+				return finalresults;
+			}
+			
+			//for each basicresult, we need to check if it is in results, if so, we can add it to the finalresults array
+			int j = 0;
+			for(int i = numResultsToSkip; i < basicresults.length; i++){
+				String id = basicresults[i].getItemId();
+				if(results_set.contains(id)){
+					if(j < numResultsToReturn){
+						SearchResult newresult = new SearchResult(basicresults[i].getItemId(), basicresults[i].getName());
+						finalresults[j] = newresult;
+						j++;
+					}
+					else{
+						break; //no point in continuing
+					}
+				}//end if
+			}//end for
 			
 			
 		} catch (SQLException e) {
@@ -114,14 +150,21 @@ public class AuctionSearch implements IAuctionSearch {
 		
 		
 		
-		return new SearchResult[0];
+		return finalresults;
 	}
 	
+	/**
+	 * Builds the spatial index. Assumes that the SQL script file for creating SpatialItems is already
+	 * created.
+	 * 
+	 * @param my_db_conn The connection to the database.
+	 */
 	private void buildSpatialIndex(Connection my_db_conn){
 		//build the spatial index
 		try {
 			Statement my_statem = my_db_conn.createStatement();
-			my_statem.executeUpdate("CREATE TABLE SpatialItems(ItemID varchar(80), LatLong POINT NOT NULL, SPATIAL INDEX(LatLong)) ENGINE=MyISAM");
+			/*Statement my_statem = my_db_conn.createStatement();
+			my_statem.executeUpdate("CREATE TABLE SpatialItems(ItemID varchar(80), LatLong POINT NOT NULL, SPATIAL INDEX(LatLong)) ENGINE=MyISAM");*/
 			
 			//fetch the tables
 			String itemid, latitude, longitude;
@@ -150,7 +193,15 @@ public class AuctionSearch implements IAuctionSearch {
 		}	
 	}
 	
-	private ResultSet getRegionalItems(Connection my_db_conn, SearchRegion region){	
+	/**
+	 * Gets the regional items based on the region
+	 * 
+	 * @param my_db_conn The connection to the database
+	 * @param region The rectangle to look for the items
+	 * @return A ResultSet containing ItemIDs of Items that lie within the specified region.
+	 */
+	private ResultSet getRegionalItems(Connection my_db_conn, SearchRegion region){
+		ResultSet geo_items = null;
 		try {
 			Statement my_statem = my_db_conn.createStatement();
 			
@@ -160,6 +211,26 @@ public class AuctionSearch implements IAuctionSearch {
 					+ "'Polygon((? ?, ? ?, ? ?, ? ?, ? ?))'"
 			);
 			
+			//set lower left
+			preparePolygon.setDouble(1, region.getLx());
+			preparePolygon.setDouble(2, region.getLy());
+			//set lower right
+			preparePolygon.setDouble(3, region.getLx()+region.getRx());
+			preparePolygon.setDouble(4, region.getLy());
+			//set upper right
+			preparePolygon.setDouble(5, region.getRx());
+			preparePolygon.setDouble(6, region.getRy());
+			//set upper left
+			preparePolygon.setDouble(7, region.getLx());
+			preparePolygon.setDouble(8, region.getRy());
+			//connect it back to the beginning
+			preparePolygon.setDouble(9, region.getLx());
+			preparePolygon.setDouble(10, region.getLy());
+			
+			preparePolygon.execute();
+			
+			geo_items = my_statem.executeQuery("SELECT ItemID FROM SpatialItems WHERE MBRContains(@poly, SpatialItems");
+			
 			
 			
 		} catch (SQLException e) {
@@ -168,7 +239,7 @@ public class AuctionSearch implements IAuctionSearch {
 		}
 		
 		
-		return null;
+		return geo_items;
 	}
 
 	public String getXMLDataForItemId(String itemId) {
