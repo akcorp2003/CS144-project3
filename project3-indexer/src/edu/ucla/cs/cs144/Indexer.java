@@ -36,7 +36,7 @@ public class Indexer {
 			try {
 				indexDir = FSDirectory.open(new File("/var/lib/lucene/index1"));
 				IndexWriterConfig config = new IndexWriterConfig(Version.LUCENE_4_10_2, new StandardAnalyzer());
-				IndexWriter indexWriter = new IndexWriter(indexDir, config);
+				_writer = new IndexWriter(indexDir, config);
 			} catch (IOException e) {
 				// TODO Auto-generated catch block
 				e.printStackTrace();
@@ -85,7 +85,7 @@ public class Indexer {
 			
 			//query all items in database
 			Statement item_statement = conn.createStatement();
-			ResultSet itemset = item_statement.executeQuery("SELECT ItemId, Name, Description FROM Item");
+			ResultSet itemset = item_statement.executeQuery("SELECT ItemID, Name, Description FROM Item");
 			
 			//query all categories of a given item
 			PreparedStatement cat_statement = conn.prepareStatement("SELECT Category FROM ItemCat WHERE ItemID = ?");
@@ -93,7 +93,7 @@ public class Indexer {
 			//for each item
 			while(itemset.next()){
 				//find item information
-				String itemid = itemset.getString("ItemId");
+				String itemid = itemset.getString("ItemID");
 				String name = itemset.getString("Name");
 				String description = itemset.getString("Description");
 				
@@ -108,7 +108,7 @@ public class Indexer {
 				
 				//create new document, add fields
 				Document doc = new Document();
-				doc.add(new StringField("ItemId", itemid, Field.Store.YES));
+				doc.add(new StringField("ItemID", itemid, Field.Store.YES));
 				doc.add(new StringField("Name", name, Field.Store.YES));
 				//"Info" is an index consisting of the concatenation of name, categories, and description
 				doc.add(new TextField("Info", name + categories + description, Field.Store.NO));
@@ -140,7 +140,9 @@ public class Indexer {
     }    
 
     public static void main(String args[]) {
+    	System.out.println("Running Indexer.");
         Indexer idx = new Indexer();
         idx.rebuildIndexes();
+        System.out.println("Finished Indexer.");
     }   
 }
